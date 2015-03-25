@@ -1,0 +1,758 @@
+﻿<!DOCTYPE html>
+<html >
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <meta name="viewport" content="initial-scale=1, maximum-scale=1,user-scalable=no">
+    <title>RandomGalleryizer</title>
+    <link rel="stylesheet" href="http://js.arcgis.com/3.13/dijit/themes/claro/claro.css">
+    <link rel="stylesheet" href="http://js.arcgis.com/3.13/esri/css/esri.css">
+    <link rel="stylesheet" href="http://esrinortheast.maps.arcgis.com/home/webmap/css/gallery.css">
+
+
+   <script>var dojoConfig = { parseOnLoad: true };</script>
+   <script src="http://js.arcgis.com/3.13/"></script>
+   <script type="text/javascript" src="Gallery_files\config.js"></script>
+
+
+  <style>
+    
+    .floating-details{
+      width:80%;
+      left:75px;
+
+    }
+
+    .summaryTable{
+
+      width:100%;
+
+    }
+
+    .summaryOwnerText{
+      vertical-align:top;
+      font-size:small;
+      color:white;
+    }
+
+    /*a:link {
+      color: white;
+    }
+
+    a:visited {
+      color: white;
+    }
+
+    a:hover {
+      color: white;
+    }*/
+
+    .dijitDialogPaneContent {
+     
+      /*width: 300px !important;*/
+      /*height: 200px !important;*/
+    }
+
+    .dijitDialogPaneContent {
+      background: #ffffff repeat-x top left;
+      border-top: 1px solid #759dc0;
+      padding: 10px 8px;
+      position: relative;
+    }
+
+    .dijitDialogTitleBar {
+      border: 1px solid #ffffff;
+      border-top: none;
+      background-color: #abd6ff;
+      /*background-image: url("../../dijit/themes/claro/images/standardGradient.png");*/
+      background-repeat: repeat-x;
+      background-image: -moz-linear-gradient(rgba(255, 255, 255, 0.7) 0%, rgba(255, 255, 255, 0) 100%);
+      background-image: -webkit-linear-gradient(rgba(255, 255, 255, 0.7) 0%, rgba(255, 255, 255, 0) 100%);
+      background-image: -o-linear-gradient(rgba(255, 255, 255, 0.7) 0%, rgba(255, 255, 255, 0) 100%);
+      background-image: linear-gradient(rgba(255, 255, 255, 0.7) 0%, rgba(255, 255, 255, 0) 100%);
+      _background-image: none;
+      padding: 5px 7px 4px 7px;
+    }
+
+  </style>
+
+   
+    <script type="text/javascript">
+    dojo.require("esri.map");
+    dojo.require('esri.arcgis.utils');
+    dojo.require('esri.dijit.Attribution');
+    dojo.require('esri.arcgis.Portal');
+    dojo.require('dojox.lang.aspect');
+    dojo.require('dojo.mouse');
+    dojo.require('dojo.on');
+
+    dojo.require("dijit.Dialog");
+
+    dojo.require("dojo.dom");
+
+
+
+    var defaultOptions = {
+      group: "",
+      portalUrl: window.esriGeowConfig2.restBaseUrl,
+      templateUrl: "",
+      displayInline: true,
+      displayApps: false,
+      queryParams: {
+        sortOrder: "desc",
+        sortField: "modified",
+        num: 100,
+        q: 'access:public type:"Web Map"'
+      }
+    };
+
+    var galleryCollection = {
+      total:0,
+      results:[]
+    }
+
+    var portal, group, nextQueryParams, numCols, numRows, isMobile, galleryHeight, staticImagesUrl;
+    var myTooltipDialog, currentItem;
+    dojo.ready(function () {
+
+      myTooltipDialog = new dijit.Dialog({
+        id: 'myTooltipDialog'
+      });
+
+      dojo.setStyle('myTooltipDialog','max-width','80%');
+
+      //set proxy, geometry service and cors urls
+      //esri.config.defaults.io.corsEnabledServers.push('http://' + location.host);
+      //esri.config.defaults.io.corsEnabledServers.push('https://' + location.host);
+
+      //esri.arcgis.utils.arcgisUrl = esriGeowConfig.restBaseUrl + "content/items";
+      //esri.config.defaults.io.proxyUrl = esriGeowConfig.proxyServer;
+
+      isMobile = mobile_detect();
+
+      //Url params for testing
+      var urlObject = esri.urlToObject(document.location.href);
+
+      if (urlObject.query) {
+        if (urlObject.query.group) {
+          defaultOptions.group = urlObject.query.group;
+        }
+        if (urlObject.query.displayapps) {
+          defaultOptions.displayApps = (urlObject.query.displayapps === 'false') ? false : true;
+        }
+        if (urlObject.query.displayinline) {
+          defaultOptions.displayInline = (urlObject.query.displayinline === 'false') ? false : true;
+        }
+        if (urlObject.query.templateurl) {
+          defaultOptions.templateUrl = decodeURIComponent(urlObject.query.templateurl);
+        }
+        if(urlObject.query.sortorder){
+          defaultOptions.queryParams.sortOrder = urlObject.query.sortorder;
+        }
+        if(urlObject.query.sortfield){
+          defaultOptions.queryParams.sortField = urlObject.query.sortfield;
+        }
+        if (urlObject.query.q) {
+          var oldq=defaultOptions.queryParams.q;
+
+          defaultOptions.queryParams.q = urlObject.query.q;
+          defaultOptions.queryParams.q += " " + oldq;
+        }
+      }
+
+
+      //determine number of thumbnails to display based on width and height.
+      var viewport = dojo.window.getBox();
+      defaultOptions.width = viewport.w - 20;
+      defaultOptions.height = viewport.h;
+      numCols = getColumns(defaultOptions.width);
+      //set the container width
+      dojo.query('.container').style('width', defaultOptions.width + 'px');
+      //get number of rows
+      numRows = getRows(defaultOptions.height);
+      galleryHeight = defaultOptions.height; // - 59;
+
+      if (defaultOptions.group!='') {
+        dojo.mixin(defaultOptions.queryParams, {
+          num: numRows * numCols,
+          q: "group:" + defaultOptions.group
+        });
+      }
+      else {
+        //dojo.mixin(defaultOptions.queryParams, {
+        //  num: numRows * numCols
+        //});
+      }
+
+
+      //get the portal and setup a listener (advise) to be notified when the queryItems method has finished.
+ 
+      portal = new esri.arcgis.Portal(defaultOptions.portalUrl);
+      dojo.connect(portal, 'onLoad', loadPortal);
+      dojox.lang.aspect.advise(portal, "queryItems", {
+        afterReturning: function (queryItemsPromise) {
+
+      }
+      });
+    });
+
+    function loadPortal() {
+      //update portal options
+       staticImagesUrl = portal.staticImagesUrl;
+        if (location.protocol === "https:" && staticImagesUrl) {
+          staticImagesUrl = portal.staticImagesUrl.replace('http:', 'https:');
+        }
+        var hs = portal.helperServices;
+        if (hs && hs.geometry && hs.geometry.url && hs.geometry.url !== defaultGeometryServerUrl) {
+          esri.config.defaults.geometryService = new esri.tasks.GeometryService(hs.geometry.url);
+        }else{
+          var defaultGeometryServerUrl = document.location.protocol + "//utility.arcgisonline.com/arcgis/rest/services/Geometry/GeometryServer";
+          esri.config.defaults.geometryService = new esri.tasks.GeometryService(defaultGeometryServerUrl);
+        }
+
+
+
+        defaultOptions.queryParams.q += (defaultOptions.displayApps) ? ' -type:"Code Attachment"' : ' -type:"Web Mapping Application" AND -type:"Code Attachment"';
+
+        //sbtest randomly query map items only, todo
+
+        if (0 == 0) {
+
+          dojo.byId("statusText").innerHTML = "Searching maps...";
+          //portal.queryItems(defaultOptions.queryParams)
+
+          dojox.lang.aspect.advise(portal, "queryItems", {
+            afterReturning: function (queryItemsPromise) {
+              queryItemsPromise.then(function (result) {
+
+                var r = result;
+
+                galleryCollection.results = galleryCollection.results.concat(result.results)
+                galleryCollection.total = galleryCollection.results.length;
+                galleryCollection.queryParams = result.queryParams;
+
+                nextQueryParams = result.nextQueryParams;
+                queryParams = result.queryParams;
+
+                if (nextQueryParams.start > -1 && galleryCollection.total<250)
+                {
+                  portal.queryItems(nextQueryParams).then(function res(result) {
+
+                  });
+
+
+                }
+                else
+                {
+                  var n = galleryCollection.total;
+                  createGallery(galleryCollection);
+                }
+
+               
+              });
+            }
+          });
+          portal.queryItems(defaultOptions.queryParams);
+
+
+        }
+        else {
+          //after the thumnbails are created position the arrow buttons to center on gallery width
+          portal.queryItems(defaultOptions.queryParams).then(createGallery).then(positionArrows);
+        }
+
+    }
+
+    function shuffle(array) {
+      var currentIndex = array.length, temporaryValue, randomIndex;
+
+      // While there remain elements to shuffle...
+      while (0 !== currentIndex) {
+
+        // Pick a remaining element...
+        randomIndex = Math.floor(Math.random() * currentIndex);
+        currentIndex -= 1;
+
+        // And swap it with the current element.
+        temporaryValue = array[currentIndex];
+        array[currentIndex] = array[randomIndex];
+        array[randomIndex] = temporaryValue;
+      }
+
+      return array;
+    }
+
+    function createGallery(response) {
+
+      response.results = shuffle(response.results);
+      esri.hide(dojo.byId('loadingImg'));
+      //show nav buttons if we have more than one page and disable next/prev at ends
+      if (response.total > (numRows * numCols)) {
+      esri.show(dojo.byId('nav'));
+        //toggle disabled classes
+
+      (nextQueryParams.start === -1 && true==false) ? dojo.addClass(dojo.byId('next'), 'gallery-nav-next-d') : dojo.removeClass(dojo.byId('next'), 'gallery-nav-next-d');
+      (response.queryParams.start > 1 || true==true) ? dojo.removeClass(dojo.byId('prev'), 'gallery-nav-prev-d') : dojo.addClass(dojo.byId('prev'), 'gallery-nav-prev-d');
+
+      }
+      //create the thumbnails and snippet info
+      var frag = document.createDocumentFragment();
+      var iCounter = 0;
+      //dojo.forEach(response.results, function (item, index) {
+      dojo.some(response.results, function (item, index) {
+        if (iCounter >= 15) { return false;}
+      if (item.id) {
+
+        var li = dojo.create('li', {
+        className: 'itemPod grid_col'
+        }, frag);
+        //construct rows and apply alpha and omega classes (margin fix) to first and last
+        if ((index % (numCols)) === 0) {
+        dojo.addClass(li, 'alpha');
+        }
+        if (((index + 1) % (numCols)) === 0) {
+        dojo.addClass(li, 'omega');
+        //add a clear
+        dojo.create('li', {
+          className: 'clear'
+        }, frag);
+        }
+        //create the thumbnail
+        var thumbnailUrl = item.thumbnailUrl;
+        if (!thumbnailUrl) {
+          if (item.type == "web mapping application") {
+            thumbnailUrl = staticImagesUrl + "/webapp.png";
+          } if (item.type == "mobile application") {
+            thumbnailUrl = staticImagesUrl + "/mobileapp.png";
+          } else {
+            thumbnailUrl = staticImagesUrl + "/desktopapp.png";
+          }
+        }
+        var link = dojo.create('div', {
+        innerHTML: '<img src="' + thumbnailUrl + '"/><p class="ellipsis">' + item.title + '</div>'
+        }, li);
+        //create the hover/click info panel
+        var snippet = item.snippet || '';
+        var tooltip = dojo.create('div', {
+        id: 'tooltip' + item.id,
+        className: 'tooltip',
+        innerHTML: '<p class="tip-title ellipsis">' + item.title + '</p><p>' + snippet + '</p>'
+        }, link, 'first');
+        var linkDiv = dojo.create('div', {
+        className: 'link'
+        }, tooltip);
+
+        //add the open map or app button
+  
+        var linkText = null;
+        switch(item.type){
+          case "Web Map": 
+            linkText = "View Map";
+            break;
+          case "Web Mapping Application":
+          case "CityEngine Web Scene":
+            linkText = "View App";
+            break;
+          default:
+            linkText = "View";
+        }
+        var openLink = dojo.create('a', {
+        innerHTML: linkText
+        }, linkDiv);
+
+       //set the url or open the map in place if its a web map and if that option has been specified
+       //Is it a web map? If so display inline if specified otherwise use a template. 
+        var url = null;
+        var sep =  defaultOptions.templateUrl.indexOf('?') !== -1 ? '&' : '?';
+        
+        if(item.type === "Web Map"){
+          if(defaultOptions.displayInline && defaultOptions.templateUrl !== ""){  
+            dojo.connect(openLink, 'onclick', function () {
+              try{
+                createOverlayMap(item);
+              }
+              catch(ex)
+              {
+
+                var e = ex;
+              }
+            });   
+          }else if(defaultOptions.displayInline){
+           dojo.connect(openLink, 'onclick', function () {
+              createMap(item);
+            });             
+          }else{
+            url = defaultOptions.templateUrl + sep + "webmap=" + item.id;  
+          }
+        }else if(item.type === "CityEngine Web Scene"){
+          //var appPath = esriGeowConfig.baseUrl.substring(0,esriGeowConfig.baseUrl.indexOf("/home"));
+          //url = appPath + "/apps/CEWebViewer/viewer.html" + sep + '3dWebScene=' + item.id;
+        }else if(item.type === "Web Mapping Application"){
+          url = item.url;
+        }else if(item.url){
+          url = item.url;
+        }else {
+//           url = esriGeowConfig.restBaseUrl + "content/items/" + item.id + "/data"
+        }
+        if(url){
+          dojo.attr(openLink, 'href', url);
+          dojo.attr(openLink, 'target', '_blank');
+        }
+
+        //if tablet then setup click event for dispalying tooltip. On desktop tooltip displays on hover
+        if (isMobile) {
+        dojo.connect(li, 'onclick', function () {
+          var node = dojo.byId('tooltip' + item.id);
+          if(node && (dojo.getStyle(node,'display') === 'block')){
+          hideTooltip('tooltip' + item.id);
+          }else{
+           displayTooltip('tooltip' + item.id);
+          }
+          //do we have any more open tooltips - if so hide them
+          dojo.query('.tooltip').forEach(function (tip) {
+          if (tip.id !== 'tooltip' + item.id) {
+            hideTooltip(tip.id);
+          }
+          });
+
+        });
+        } else {
+        //hover since its not a tablet
+        dojo.connect(li, dojo.mouse.enter, function () {
+          displayTooltip('tooltip' + item.id);
+        });
+        dojo.connect(li, dojo.mouse.leave, function () {
+          hideTooltip('tooltip' + item.id);
+        });
+        }
+      }
+      iCounter++;
+      });
+      var node = dojo.byId('galleryList');
+      // fade in new items
+      dojo.empty(node); //clear existing items
+      dojo.style(node, 'opacity', '0');
+      dojo.fadeIn({
+      node: node,
+      duration: 1000
+      }).play();
+      dojo.place(frag, node); //add new items
+    }
+
+    function createOverlayMap(item) {
+      esri.show(dojo.byId('loadingImg'));
+      dojo.byId("statusText").innerHTML = "Loading map '" + item.title + "'...";
+
+      //open the box and display the map
+      var boxnode = dojo.byId('box');
+      esri.hide(dojo.byId('galleryBox'));
+      esri.show(boxnode);
+
+
+      dojo.style(boxnode,{
+      //opacity:0,
+      width: (defaultOptions.width) + 'px',
+      height: (defaultOptions.height) + 'px'
+      });
+
+      //for IE set the map div height
+      if(dojo.isIE){
+        var details = dojo.byId('boxdetails');
+        dojo.style(details,'height',galleryHeight + 'px');
+      }
+
+      var sep =  defaultOptions.templateUrl.indexOf('?') !== -1 ? '&' : '?';
+      dojo.create("iframe",{
+        src:defaultOptions.templateUrl + sep + "webmap=" + item.id,
+        width: (defaultOptions.width),
+        height: (defaultOptions.height),
+        scrolling: "no",
+        frameborder:"0",
+        style: "margin-right:10px;margin-top:60px;"  
+      },"boxdetails");
+ 
+      var summaryTemplate = "<div class='box-footer'><p class='ellipsis title'>${0}</p><p class='summary'>${1}</p></div>";
+      var snippet = item.snippet || '';
+      //create floating div for the title and summary and add on top of map
+      var floatingContent = dojo.string.substitute(summaryTemplate,[item.title,snippet]);
+      dojo.create('div',{
+        id:'map-details',
+        className:'floating-details',
+        innerHTML: floatingContent,
+        onclick:function(){
+          //fade out node if title div is clicked
+          var node = dojo.byId('map-details');
+         //sbtest  fadeOutMapDetails(node,0);
+        }
+      },"boxdetails");
+
+      //fade out the node after 15 seconds if it still exists
+      var detailNode = dojo.byId('map-details');
+      //sbtest fadeOutMapDetails(detailNode,15000);
+
+
+      //add a close icon to the map
+      var close = dojo.create('a', {
+        className: 'boxclose',
+        onclick: function () {
+        //fade out the map display box
+        var boxnode = dojo.byId('box');
+        dojo.fadeOut({
+          node: boxnode,
+          onEnd: function () {
+          esri.hide(boxnode);
+          esri.show(dojo.byId('galleryBox'));
+          dojo.byId('boxdetails').innerHTML = '';
+          }
+        }).play();
+        }
+      }, "boxdetails", "first");
+
+      esri.hide(dojo.byId('loadingImg'));
+      dojo.fadeIn({
+        node: boxnode
+      }).play();
+  
+
+    }
+    function createMap(item) {
+      esri.show(dojo.byId('loadingImg'));
+      dojo.byId("statusText").innerHTML = "Loading map '" + item.title + "'...";
+
+      currentItem = item;
+
+      //open the box and display the map
+      var boxnode = dojo.byId('box');
+
+      esri.hide(dojo.byId('galleryBox'));
+      esri.show(boxnode);
+
+
+      dojo.style(boxnode,{
+      opacity:0,
+      width: (defaultOptions.width) + 'px',
+      height: (defaultOptions.height) + 'px'
+      });
+
+      //for IE set the map div height
+      if(dojo.isIE){
+      var details = dojo.byId('boxdetails');
+      dojo.style(details,'height',galleryHeight + 'px');
+      }
+
+      //get the gallery list height and set map to that height  - we use original height so that on additional pages
+      //map doesn't size down to a smaller number of rows.
+      esri.arcgis.utils.createMap(item.id, dojo.create('div', {
+        id: item.id,
+        className: 'map-container',
+        style: 'height:' + galleryHeight + 'px'
+        }, 'boxdetails'), {
+        mapOptions: {
+          wrapAround180: true,
+          showAttribution:true,
+          slider: true
+        }
+        }).then(function (response) {
+
+          var summaryTemplate = "<div class='box-footer'><p class='ellipsis title'>${0}</p><p class='summary'>${1}</p></div>";
+
+
+          summaryTemplate = "<div class='box-footer'><table class='summaryTable'><tr><td><p class='ellipsis title'>${0}</p><p style='text-decoration:underline;cursor:pointer' onclick='showInfo()' class='summary'>${1}</p></td><td><div class='summaryOwnerText'>by: <a style='color:white;' target='_blank' href='${3}'>${2}</a></div></td></tr></div>";
+
+      var snippet = item.snippet || item.type;
+          //create floating div for the title and summary and add on top of map
+      var url = item.itemUrl.replace("sharing/rest/content/items/", "home/item.html?id=")
+
+      var floatingContent = dojo.string.substitute(summaryTemplate, [item.title, snippet,item.owner,url]);
+
+      dojo.create('div',{
+        id:'map-details',
+        className: 'floating-details',
+        
+        innerHTML: floatingContent,
+        onclick:function(){
+          //fade out node if title div is clicked
+          var node = dojo.byId('map-details');
+          //sbtest fadeOutMapDetails(node,0);
+        }
+      },response.map.root);
+
+      //fade out the node after 15 seconds if it still exists
+      var detailNode = dojo.byId('map-details');
+      //sbtest fadeOutMapDetails(detailNode,15000);
+
+      //fade out the node if the map is clicked (use once so it only happens one time)
+      dojo.on.once(response.map.root,'click',function(){
+         //sbtest fadeOutMapDetails(dojo.byId('map-details'),0);
+      });
+      //add a close icon to the map
+      var close = dojo.create('a', {
+        className: 'boxclose',
+        onclick: function () {
+        //fade out the map display box
+        var boxnode = dojo.byId('box');
+        dojo.fadeOut({
+          node: boxnode,
+          onEnd: function () {
+          esri.hide(boxnode);
+          esri.show(dojo.byId('galleryBox'));
+          dojo.byId('boxdetails').innerHTML = '';
+          }
+        }).play();
+        }
+      }, response.map.root);
+
+      esri.hide(dojo.byId('loadingImg'));
+
+      dojo.fadeIn({
+        node: boxnode
+      }).play();
+      });
+    }
+
+    function showInfo()
+    {
+      var txt = currentItem.description;
+
+      if (txt != null && txt != 'null')
+      {
+      //alert(txt);
+
+        // myDialog.set("content"
+
+      myTooltipDialog.set ("content",txt);
+      myTooltipDialog.show();
+      //dijit.popup.open({
+      //  popup: myTooltipDialog,
+      //  around: dojo.dom.byId("map-details")
+      //});
+    }
+      
+
+    }
+
+    function fadeOutMapDetails(node,duration){
+      //fade out the map details node then delete it
+      if(node){
+       dojo.fadeOut({
+          node: node,
+          duration:duration,
+          onEnd: function () {
+            dojo.destroy(node);
+          }
+        }).play();
+
+      }
+
+    }
+    //hide the tooltip dialog when users mouse out or click another item
+    function hideTooltip(id) {
+      var node = dojo.byId(id);
+      if (node) {
+      dojo.style(node, {
+        opacity: 0,
+        display: 'none'
+      });
+      }
+    }
+    //display the tooltip dialog when users click or hover over the gallery item
+    function displayTooltip(id) {
+      var node = dojo.byId(id);
+      esri.show(node);
+      dojo.fadeIn({
+      node: node
+      }).play();
+    }
+
+    function positionArrows() {
+      //if nav isn't visible this means we only have one page of data so we don't need the arrows.
+      if (dojo.style(dojo.byId('nav')).display === 'none') {
+      return;
+      }
+      //find gallery width first and last cols are 230 (220+10 margin) all middle are 240 (220 + 10 margin each side)
+      var totalGalleryWidth = ((numCols * 230) + 20);
+      var imageWidth = dojo.position('next').w;
+      var pos = (totalGalleryWidth / 2 - imageWidth);
+      dojo.style('nav', {
+      'left': pos + 'px'
+      });
+    }
+    /*Navigation controls - get the next or previous set of items from the group*/
+    function getNext() {
+
+      createGallery(galleryCollection);
+      return;
+
+      if (nextQueryParams.start > -1) {
+      portal.queryItems(nextQueryParams).then(createGallery);
+      }
+      else {
+
+        createGallery(galleryCollection);
+      }
+    }
+
+    function getPrevious() {
+      createGallery(galleryCollection);
+      return;
+
+      if (nextQueryParams.start !== 1) { //not at beginning keep querying
+      var params = defaultOptions.queryParams;
+      params.start = params.start - params.num;
+      portal.queryItems(params).then(createGallery);
+      }
+    }
+    //figure out the number of thumbnails that can fit the page width
+    function getColumns(width) {
+      if (width < 230) {
+      return 1; //display one column even though its smaller than one
+      }
+      var baseCol = Math.floor(width / 230);
+      var avgColWidth = (baseCol <= 2) ? 230 : (2 * 230 + (baseCol - 2) * 240) / baseCol;
+      return Math.floor(width / avgColWidth);
+    }
+    //figure out the number of thumbnails that can fit the page height
+    function getRows(height) {
+      if (height <= 220) {
+      return 1; //smaller than one row
+      } else {
+      return Math.floor(height / 229); //thumbnail item height is 209 + margin of 10 on top and bottom
+      }
+    }
+    //Detect if we are on a mobile tablet
+    function mobile_detect() {
+      return (/ipad|android|android 3.0|xoom|sch-i800|playbook|tablet|kindle/i.test(navigator.userAgent.toLowerCase()));
+    }
+    </script>
+    <script>
+
+    </script></head>
+    
+<body class="claro">
+  <div id="maincontainer" class="container" style="width: 1401px;">
+    <div id="box" class="box" style="display:none;">
+      <div id="boxdetails" class="box-content"></div>
+    </div>
+    <div class="clear"></div>
+    <div id="galleryBox">
+      <!--<img id="loadingImg" alt="Loading" src="./Gallery_files/loading.gif" style="position: absolute; right: 50%; top: 50%; z-index: 404; ">-->
+      <ul id="galleryList" class="gallery-list" style="opacity: 1;"></ul>
+
+      <!--bottom center navigation arrows-->
+      <div id="nav" class="gallery-nav">
+        <div id="prev" class="gallery-nav-buttons gallery-nav-prev" onclick="getPrevious();"></div>
+        <div id="next" class="gallery-nav-buttons gallery-nav-next" onclick="getNext();"></div>
+      </div>
+    </div>
+
+    <div id="loadingImg" style="position: absolute; right: 50%; top: 50%; z-index: 404; ">
+      <img id="loadingImg2" alt="Loading" src="./Gallery_files/loading.gif">
+      <span id="statusText"></span>
+    </div>
+
+
+  </div>
+
+
+
+
+</body></html>

@@ -366,7 +366,7 @@
         dojo.connect(adminLink, 'onclick', function () {
           try{
             //open link
-            var url=item.itemUrl;
+            var url="https://www.arcgis.com/home/item.html?id=" + item.id;
             window.location.href = url;
           }
           catch(ex)

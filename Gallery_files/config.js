@@ -18,7 +18,7 @@
     //dojoBaseUrl: DEPLOY_ROOT + '/js/dojo/',
     //proxyUrl: '',
     //proxyServer: location.protocol + '//' + location.host + '/sharing/proxy',
-    restBaseUrl: 'http://esrinortheast.maps.arcgis.com/sharing/rest/',
+    restBaseUrl: 'http://www.arcgis.com/sharing/rest/',
     //reflectorUrl: location.protocol + '//' + location.host + '/sharing/tools/reflect',
     //bridgeUrl: location.protocol + '//' + location.host + '/sharing/tools/bridge',
     //marketplaceUrl: location.protocol + '//' + 'marketplace.arcgis.com',

@@ -299,7 +299,7 @@
       var iCounter = 0;
       //dojo.forEach(response.results, function (item, index) {
       dojo.some(response.results, function (item, index) {
-        if (iCounter >= 15) { return false;}
+        if (iCounter >= 100) { return false;}
       if (item.id) {
 
         var li = dojo.create('li', {

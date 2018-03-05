@@ -359,6 +359,23 @@
         innerHTML: linkText
         }, linkDiv);
 
+        var adminLink = dojo.create('a', {
+        innerHTML: "View Item"
+        }, linkDiv);
+
+        dojo.connect(openLink, 'onclick', function () {
+          try{
+            //open link
+            var url=item.url;
+            window.location.href = url;
+          }
+          catch(ex)
+          {
+
+            var e = ex;
+          }
+        });  
+        
        //set the url or open the map in place if its a web map and if that option has been specified
        //Is it a web map? If so display inline if specified otherwise use a template. 
         var url = null;
